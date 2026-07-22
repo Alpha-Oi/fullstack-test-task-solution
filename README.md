@@ -82,7 +82,7 @@ docker exec -it backend alembic upgrade head
 - frontend: <http://localhost:3000/test>
 - Swagger UI: <http://localhost:8000/docs>
 
-Внешний порт PostgreSQL — `5433`, внутренний — стандартный `5432`.
+PostgreSQL доступен только сервисам внутри Docker-сети на стандартном порту `5432`.
 
 ## Проверка
 
