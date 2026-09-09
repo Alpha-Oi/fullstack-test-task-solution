@@ -1,90 +1,119 @@
-# File Exchange — Fullstack test task
+<div align="center">
 
-Рефакторинг MVP-файлообменника из исходного [тестового задания](https://github.com/sputnik-llc/fullstack-test-task). Приложение загружает и хранит файлы, асинхронно проверяет их признаки, извлекает метаданные и создаёт алерты.
+# ◈ File Exchange
 
-## Что реализовано
+### Refactored fullstack file-exchange MVP
 
-- backend разделён на HTTP, application, domain и infrastructure слои;
-- сохранены исходные endpoints, response models и правила проверки файлов;
-- загрузка идёт частями по 1 MiB без чтения целого файла в память;
-- блокирующая обработка файлов вынесена из event loop;
-- конфигурация БД, Redis, CORS и хранилища централизована;
-- исправлены Docker-конфигурация PostgreSQL, Redis и сборка frontend;
-- удаление файла каскадно удаляет связанные alerts;
-- добавлены индексы для сортировки файлов и alerts по дате;
-- frontend разделён на API, hooks, features, components, lib и types;
-- добавлены backend-тесты, typecheck frontend и CI.
+**Layered FastAPI backend · Parallel Celery chord processing · Next.js frontend**
 
-## Архитектура backend
+[![CI](https://github.com/Alpha-Oi/fullstack-test-task-solution/actions/workflows/ci.yml/badge.svg)](https://github.com/Alpha-Oi/fullstack-test-task-solution/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22a06b.svg)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/Alpha-Oi/fullstack-test-task-solution?color=1f6feb)](https://github.com/Alpha-Oi/fullstack-test-task-solution/commits/main)
+
+[English](README.md) · [Русский](README.ru.md) · [Contributing](CONTRIBUTING.md) · [Conduct](CODE_OF_CONDUCT.md) · [Security](SECURITY.md)
+
+</div>
+
+---
+
+A refactoring of the MVP file exchange from the original
+[test task](https://github.com/sputnik-llc/fullstack-test-task). The application
+uploads and stores files, checks their traits asynchronously, extracts metadata, and
+raises alerts.
+
+## What was done
+
+- the backend is split into HTTP, application, domain, and infrastructure layers;
+- the original endpoints, response models, and file-check rules are preserved;
+- uploads stream in 1 MiB chunks without reading the whole file into memory;
+- blocking file processing is moved off the event loop;
+- database, Redis, CORS, and storage configuration is centralized;
+- the Docker setup for PostgreSQL, Redis, and the frontend build is fixed;
+- deleting a file cascades to its alerts;
+- indexes are added for sorting files and alerts by date;
+- the frontend is split into API, hooks, features, components, lib, and types;
+- backend tests, frontend typecheck, and CI are added.
+
+## Backend architecture
 
 ```text
 src/
-├── api/              # FastAPI routers и dependency wiring
-├── services/         # сценарии работы с файлами и обработка содержимого
-├── domain/           # ошибки и статусы предметной области
-├── infrastructure/   # SQLAlchemy repositories и файловое хранилище
-├── workers/          # Celery app и фоновые задачи
-├── core/             # конфигурация и единая DB session factory
-├── models.py         # ORM-модели
-├── schemas.py        # API-схемы
+├── api/              # FastAPI routers and dependency wiring
+├── services/         # file use cases and content processing
+├── domain/           # domain errors and statuses
+├── infrastructure/   # SQLAlchemy repositories and file storage
+├── workers/          # Celery app and background tasks
+├── core/             # configuration and a single DB session factory
+├── models.py         # ORM models
+├── schemas.py        # API schemas
 └── app.py            # composition root
 ```
 
-API-слой отвечает только за HTTP. `FileService` координирует use cases и границы транзакций. Репозитории инкапсулируют SQLAlchemy-запросы, а `LocalFileStorage` — работу с диском. Чистые функции проверки и извлечения метаданных тестируются отдельно от Celery и БД.
+The API layer only handles HTTP. `FileService` coordinates use cases and transaction
+boundaries. Repositories encapsulate SQLAlchemy queries, and `LocalFileStorage`
+encapsulates disk access. The pure check and metadata-extraction functions are tested
+apart from Celery and the database.
 
-## Дополнительная оптимизация
+## Additional optimization
 
-В исходной реализации фоновые этапы выполнялись последовательно:
+In the original implementation the background stages ran sequentially:
 
 ```text
 scan → metadata → alert
 ```
 
-Проверка признаков угроз использует данные из БД, а извлечение метаданных читает сохранённый файл. Эти операции не зависят друг от друга, поэтому workflow перестроен в Celery chord:
+Threat-trait checking uses data from the database, and metadata extraction reads the
+stored file. These operations do not depend on each other, so the workflow is rebuilt
+as a Celery chord:
 
 ```text
 mark processing → (scan ‖ metadata) → finalize + alert
 ```
 
-Это уменьшает общую задержку обработки до времени самого медленного из двух этапов вместо их суммы. Redis используется и как broker, и как result backend, необходимый для синхронизации chord. Дополнительно backend и worker используют одну фабрику SQLAlchemy sessions вместо дублирующих engine/pool.
+This reduces total processing latency to the slower of the two stages instead of their
+sum. Redis is used both as the broker and as the result backend required for chord
+synchronization. The backend and the worker also share one SQLAlchemy session factory
+instead of duplicate engines and pools.
 
-## Архитектура frontend
+## Frontend architecture
 
 ```text
 src/
-├── app/              # Next.js page и layout
+├── app/              # Next.js page and layout
 ├── api/              # HTTP client
-├── hooks/            # состояние и orchestration страницы
-├── features/         # пользовательский сценарий загрузки
-├── components/       # таблицы и presentation-компоненты
-├── lib/              # форматирование и UI helpers
-└── types/            # API-типы
+├── hooks/            # page state and orchestration
+├── features/         # the upload user flow
+├── components/       # tables and presentation components
+├── lib/              # formatting and UI helpers
+└── types/            # API types
 ```
 
-Компоненты не знают адреса API и не содержат сетевую логику. Состояние страницы находится в `useFileDashboard`, а форма загрузки изолирована как feature.
+Components do not know the API address and hold no network logic. Page state lives in
+`useFileDashboard`, and the upload form is isolated as a feature.
 
-## Запуск
+## Running
 
-Требуется Docker с Compose plugin.
+Requires Docker with the Compose plugin.
 
 ```bash
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-В другом терминале применить миграции:
+In another terminal, apply the migrations:
 
 ```bash
 docker exec -it backend alembic upgrade head
 ```
 
-После запуска:
+After startup:
 
 - frontend: <http://localhost:3000/test>
 - Swagger UI: <http://localhost:8000/docs>
 
-PostgreSQL доступен только сервисам внутри Docker-сети на стандартном порту `5432`.
+PostgreSQL is reachable only by services inside the Docker network on the standard
+port `5432`.
 
-## Проверка
+## Checks
 
 Backend:
 
@@ -104,17 +133,23 @@ npm run typecheck
 npm run build
 ```
 
-Тесты покрывают CRUD и скачивание через API, каскадное удаление alerts, потоковое сохранение, правила проверки, извлечение текстовых/PDF-метаданных и структуру параллельного Celery workflow.
+Tests cover CRUD and download through the API, cascade deletion of alerts, streaming
+storage, the check rules, text and PDF metadata extraction, and the structure of the
+parallel Celery workflow.
 
-## Сохранённая бизнес-логика
+## Preserved business logic
 
-- `.exe`, `.bat`, `.cmd`, `.sh`, `.js` считаются подозрительными;
-- файл больше 10 MiB требует внимания;
-- несовпадение расширения `.pdf` и MIME-типа требует внимания;
-- для текста рассчитываются `line_count` и `char_count`;
-- для PDF приблизительно рассчитывается число страниц;
-- результат обработки создаёт `info`, `warning` или `critical` alert.
+- `.exe`, `.bat`, `.cmd`, `.sh`, `.js` are treated as suspicious;
+- a file larger than 10 MiB needs attention;
+- a mismatch between a `.pdf` extension and the MIME type needs attention;
+- `line_count` and `char_count` are computed for text;
+- the page count is estimated for PDFs;
+- the processing result raises an `info`, `warning`, or `critical` alert.
 
-## Ограничения MVP
+## MVP limitations
 
-Проверка основана на признаках файла и не является антивирусом. Локальное хранилище подходит для одного узла; в распределённой среде adapter можно заменить на S3-совместимое хранилище без изменения HTTP и application слоёв. Для гарантированной доставки задания при одновременном отказе БД и broker следующим шагом был бы transactional outbox.
+The check is based on file traits and is not an antivirus. Local storage suits a
+single node; in a distributed setup the adapter can be swapped for S3-compatible
+storage without changing the HTTP or application layers. To guarantee task delivery
+when the database and the broker fail at the same time, the next step would be a
+transactional outbox.
